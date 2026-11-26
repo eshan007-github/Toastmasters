@@ -965,7 +965,8 @@ function reimbursementForm(existing){return new Promise(resolve=>{
  ov.style.cssText='position:fixed;inset:0;background:#102a43a8;z-index:99999;display:grid;place-items:center;padding:16px;overflow:auto';
  const f=(label,inner)=>`<div style="margin-bottom:12px"><label>${label}</label>${inner}</div>`;
  ov.innerHTML=`<div style="background:white;border-radius:12px;padding:24px;width:min(460px,100%);box-shadow:0 12px 40px #0004"><h3 style="margin-top:0">${existing?'Edit':'Add'} reimbursement</h3>`+
-  f('Name',`<input id="rbName" value="${esc(r.name||'')}">`)+
+  f('Member',`<select id="rbMember"><option value="">Select a club member</option>${[...new Set(currentValidVPMMembers().map(m=>String(m.name||'').trim()).filter(Boolean).concat(r.name?[String(r.name).trim()]:[]))].sort((a,b)=>a.localeCompare(b)).map(name=>`<option value="${esc(name)}" ${name===r.name?'selected':''}>${esc(name)}</option>`).join('')}<option value="__other__">Other / enter name manually</option></select>`)+
+  `<div id="rbManualWrap" style="display:none">`+f('Name (other)',`<input id="rbName" value="${esc(r.name||'')}" placeholder="Enter a name">`)+`</div>`+
   f('Amount (INR)',`<input id="rbAmount" type="number" min="0" step="0.01" value="${esc(r.amount??'')}">`)+
   f('Purpose',`<input id="rbPurpose" value="${esc(r.purpose||'')}">`)+
   f('Date of expense incurred',`<input id="rbDate" type="date" value="${esc(r.expenseDate||'')}">`)+
@@ -974,17 +975,20 @@ function reimbursementForm(existing){return new Promise(resolve=>{
   `<p id="rbErr" style="color:#b42318;font-size:13px;min-height:16px;margin:0 0 8px"></p><div class="actions" style="margin-top:0"><button id="rbOk">Save</button><button id="rbCancel" style="background:#667487">Cancel</button></div></div>`;
  document.body.appendChild(ov);
  const g=id=>ov.querySelector('#'+id),st=g('rbStatus');st.value=r.status==='Reimbursed'?'Reimbursed':'Pending';
+ const member=g('rbMember'),manualWrap=g('rbManualWrap');
+ const syncMember=()=>{manualWrap.style.display=member.value==='__other__'?'block':'none'};
+ member.onchange=syncMember;syncMember();
  const sync=()=>{g('rbPaidWrap').style.display=st.value==='Reimbursed'?'block':'none'};sync();st.onchange=sync;
  const done=v=>{ov.remove();resolve(v)};
  g('rbCancel').onclick=()=>done(null);
- g('rbOk').onclick=()=>{const name=g('rbName').value.trim(),purpose=g('rbPurpose').value.trim(),amt=g('rbAmount').value.trim(),date=g('rbDate').value,status=st.value,paid=g('rbPaid').value,err=m=>{g('rbErr').textContent=m};
+ g('rbOk').onclick=()=>{const name=(member.value==='__other__'?g('rbName').value:member.value).trim(),purpose=g('rbPurpose').value.trim(),amt=g('rbAmount').value.trim(),date=g('rbDate').value,status=st.value,paid=g('rbPaid').value,err=m=>{g('rbErr').textContent=m};
   if(!name)return err('Enter the name.');
   if(!amt||!Number.isFinite(+amt)||+amt<=0)return err('Enter a valid amount greater than zero.');
   if(!purpose)return err('Enter the purpose.');
   if(!date)return err('Enter the date the expense was incurred.');
   if(status==='Reimbursed'){if(!paid)return err('Enter the date of reimbursement.');if(paid<date)return err('Reimbursement date cannot be before the expense date.')}
   done({...r,id:r.id||rowId(),name,amount:Math.round(+amt*100)/100,purpose,expenseDate:date,status,reimbursedDate:status==='Reimbursed'?paid:''})};
- g('rbName').focus()})}
+ g('rbMember').focus()})}
 
 // Shape/repair helper: makes sure all registers exist and fixes entries saved with a broken Type.
 function ensureShape(d){

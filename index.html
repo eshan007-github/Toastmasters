@@ -469,7 +469,7 @@ let calcSelectedRecord='';
 function calculatorVPMEntries(){
  const records=receiptLinkedMembers(),latest=new Map();
  for(const m of records){
-  const key=String(m.memberId||m.contact||m.name||'').trim().toLowerCase();
+  const key=String(m.memberId||memberContact(m)||m.name||'').trim().toLowerCase();
   if(!key)continue;
   const previous=latest.get(key);
   if(!previous||String(m.validUntil||'')>String(previous.validUntil||''))latest.set(key,m);
@@ -501,7 +501,7 @@ function calculatorChangeSource(){
  const choices=source==='guest'?(store.guests||[]):source==='vpm'?calculatorVPMEntries():[];
  $('calcPersonWrap').hidden=source==='manual';
  $('calcPersonLabel').textContent=source==='guest'?'Select potential guest':'Select existing VPM member';
- person.innerHTML='<option value="">Choose '+(source==='guest'?'guest':'member')+'</option>'+choices.map((p,i)=>'<option value="'+i+'">'+esc(String(p.name||'Unnamed')+(p.contact?' · '+p.contact:''))+'</option>').join('');
+ person.innerHTML='<option value="">Choose '+(source==='guest'?'guest':'member')+'</option>'+choices.map((p,i)=>'<option value="'+i+'">'+esc(String(p.name||'Unnamed')+(memberContact(p)?' · '+memberContact(p):''))+'</option>').join('');
  $('name').readOnly=source!=='manual';$('calcContact').readOnly=false;
  $('calcMemberHint').textContent=kind==='reinstated'?'Reinstated members use existing-member pricing (no one-time joining fee). Enter the member name and contact number.':source==='guest'?'Select a potential guest to pre-fill their name and contact number. No email is required.':source==='vpm'?'Select a VPM member to pre-fill their saved details. Historical members remain selectable for renewal.':'Enter the new member’s details.';
  calculate();
@@ -512,7 +512,7 @@ function calculatorChoosePerson(){
  if(index==='')return;
  const choices=source==='guest'?(store.guests||[]):source==='vpm'?calculatorVPMEntries():[];
  const m=choices[Number(index)];if(!m)return;
- $('name').value=String(m.name||'');$('calcContact').value=String(m.contact||'');
+ $('name').value=String(m.name||'');$('calcContact').value=memberContact(m);
  calcSelectedRecord=source==='guest'?String(m.id||''):String(m.id||'');
  if(!$('calcContact').value)$('calcMemberHint').textContent='Contact number is missing from this register entry. Please enter a contact number before invoicing.';
  calculate();
@@ -604,10 +604,25 @@ async function printDoc(id,receipt){
 }
 
 
+
+// Backward-compatible contact number lookup. Older ClubOS releases stored telephone
+// numbers in a field labeled "Email"; preserve that original field and copy only
+// phone-like values into the new contact field.
+function legacyPhoneNumber(value){
+ const text=String(value??'').trim();
+ const digits=text.replace(/\D/g,'');
+ return text&&!text.includes('@')&&/^[+()\d\s-]+$/.test(text)&&digits.length>=7&&digits.length<=15?text:'';
+}
+function memberContact(record){
+ if(!record)return '';
+ return String(record.contact??'').trim()||legacyPhoneNumber(record.email);
+}
+
 function receiptLinkedMembers(){
  return store.invoices.filter(i=>store.payments.some(p=>p.invoiceId===i.id)||(store.memberRegister||[]).some(r=>r.invoiceId===i.id&&r.activePending===true)).map(i=>{
   const override=(store.memberRegister||[]).find(r=>r.invoiceId===i.id)||{};
-  return {...i,...Object.fromEntries(['name','email','contact','since','memberId'].filter(k=>override[k]!==undefined&&override[k]!==null).map(k=>[k,override[k]])),
+  return {...i,...Object.fromEntries(['name','email','since','memberId'].filter(k=>override[k]!==undefined&&override[k]!==null).map(k=>[k,override[k]])),
+   contact:String(override.contact??'').trim()||memberContact(i)||legacyPhoneNumber(override.email),
    received:paid(i.id),receiptCount:store.payments.filter(p=>p.invoiceId===i.id).length,
    receiptStatus:paid(i.id)+0.005>=Number(i.total||0)?'Paid':paid(i.id)>0?'Partially paid':'Unpaid',activePending:override.activePending===true};
  });
@@ -1072,6 +1087,13 @@ function ensureShape(d){
  if(!d||typeof d!=='object')d={};
  if(!d.club||typeof d.club!=='object')d.club={};
  for(const k of ['invoices','payments','guests','memberRegister','ledger','balance','reimbursements'])if(!Array.isArray(d[k]))d[k]=[];
+ // Non-destructive compatibility upgrade: never erase a saved email value.
+ for(const k of ['invoices','guests','memberRegister'])for(const row of d[k]){
+  if(row&&typeof row==='object'&&!String(row.contact??'').trim()){
+   const oldPhone=legacyPhoneNumber(row.email);
+   if(oldPhone)row.contact=oldPhone;
+  }
+ }
  for(const r of d.ledger){if(r.type&&!['income','expense'].includes(r.type))r.type='needs type';else if(!r.type){r.type=(+r.expense||0)>0?'expense':'income';r.amount=+(r.type==='expense'?r.expense:r.income)||0;r.particular=r.particular||''}}
  for(const r of d.balance){if(r.type&&!['asset','liability'].includes(r.type))r.type='needs type';else if(!r.type){r.type=(+r.liabilityAmount||0)>0?'liability':'asset';r.amount=+(r.type==='liability'?r.liabilityAmount:r.assetAmount)||0;r.particular=r.type==='liability'?(r.liability||''):(r.asset||'')}}
  return d;

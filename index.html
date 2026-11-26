@@ -633,7 +633,12 @@ function autoClubServiceIncome(){
  }
  return rows;
 }
-function ledgerRows(){return [...(store.ledger||[]),...autoClubServiceIncome()];}
+function ledgerRows(){
+ const details=autoClubServiceIncome();
+ const totalCents=details.reduce((sum,r)=>sum+Math.round(r.amount*100),0);
+ const consolidated=totalCents>0?[{id:'auto-clubfee-total',type:'income',amount:totalCents/100,particular:'Club Service Fees',autoClubFee:true,receiptCount:details.length}]:[];
+ return [...(store.ledger||[]),...consolidated];
+}
 
 function totals(kind){let rows=kind==='ledger'?ledgerRows():(store[kind]||[]);let first=kind==='ledger'?'income':'asset',second=kind==='ledger'?'expense':'liability';return [first,second].map(t=>rows.filter(r=>r.type===t).reduce((sum,r)=>sum+(+r.amount||0),0))}
 function registerTable(kind){let def=registerDefs[kind],rows=kind==='ledger'?ledgerRows():(store[kind]||[]),financial=['ledger','balance'].includes(kind),t=financial?totals(kind):null;return `<div class="panel"><h3>${def.title}</h3><div class="actions"><button onclick="addRegister('${kind}')">+ Add entry</button><button onclick="registerCSV('${kind}')">Download CSV</button><button onclick="registerPDF('${kind}')">Download PDF</button></div><div class="scroll"><table><thead><tr><th>Sr No</th>${def.columns.map(c=>`<th>${esc(c[1])}</th>`).join('')}<th>Actions</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td>${esc(r.serial||i+1)}</td>${def.columns.map(([k])=>`<td>${esc(r[k]??'')}</td>`).join('')}<td>${r.autoClubFee?'<span class="muted">Automatic · receipt-linked</span>':`<button onclick="editRegister('${kind}','${r.id}')">Edit</button> <button onclick="deleteRegister('${kind}','${r.id}')">Delete</button>`}</td></tr>`).join('')||`<tr><td colspan="${def.columns.length+2}">No entries yet</td></tr>`}</tbody></table></div>${financial?`<p><b>${kind==='ledger'?'Total income':'Total assets'}:</b> ${money(t[0])} &nbsp; <b>${kind==='ledger'?'Total expenses':'Total liabilities'}:</b> ${money(t[1])} &nbsp; <b>${kind==='ledger'?'Net earnings':'Net assets'}:</b> ${money(t[0]-t[1])}</p>`:''}${kind==='reimbursements'?reimbSummary():''}</div>`}

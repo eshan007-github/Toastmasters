@@ -612,6 +612,53 @@ async function addRegister(kind){let r=await collectRow(kind);if(!r)return;store
 async function editRegister(kind,id){let idx=store[kind].findIndex(r=>String(r.id)===String(id));if(idx<0)return;let r=await collectRow(kind,store[kind][idx]);if(!r)return;store[kind][idx]=r;persist();render()}
 function deleteRegister(kind,id){if(!confirm('Permanently delete this entry from '+registerDefs[kind].title+'?'))return;store[kind]=store[kind].filter(r=>String(r.id)!==String(id));persist();render()}
 function deleteInvoice(id){let linked=store.payments.filter(p=>p.invoiceId===id).length;if(!confirm('Delete invoice '+id+' and '+linked+' linked payment(s)? This cannot be undone.'))return;store.invoices=store.invoices.filter(i=>i.id!==id);store.payments=store.payments.filter(p=>p.invoiceId!==id);persist();render()}
+
+function editReceipt(receiptId){
+ if(!['president','treasurer'].includes(cloudRole))return alert('Only the Treasurer or President can edit receipts.');
+ const p=store.payments.find(x=>String(x.id)===String(receiptId));
+ if(!p)return alert('Receipt not found.');
+ const invoice=store.invoices.find(i=>String(i.id)===String(p.invoiceId));
+ if(!invoice)return alert('Linked invoice not found. This receipt cannot be edited.');
+ const old=document.getElementById('receiptEditOverlay');if(old)old.remove();
+ const overlay=document.createElement('div');overlay.id='receiptEditOverlay';
+ overlay.style.cssText='position:fixed;inset:0;background:#12263eb8;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px';
+ const card=document.createElement('form');card.style.cssText='background:white;color:#263342;border-radius:14px;box-shadow:0 14px 50px #0005;padding:24px;width:min(480px,100%);max-height:90vh;overflow:auto';
+ const title=document.createElement('h2');title.textContent='Edit Receipt · '+p.id;
+ const context=document.createElement('p');context.className='muted';context.textContent='Invoice: '+invoice.id+' · Member: '+invoice.name+'. Receipt number and linked invoice remain unchanged.';
+ card.append(title,context);
+ function field(label,id,type,value){
+  const wrap=document.createElement('div'),l=document.createElement('label'),input=document.createElement('input');
+  l.htmlFor=id;l.textContent=label;input.id=id;input.type=type;input.value=String(value??'');input.required=type!=='text';
+  wrap.style.marginBottom='14px';wrap.append(l,input);card.append(wrap);return input;
+ }
+ const amount=field('Amount received (INR)','receiptEditAmount','number',Number(p.amount).toFixed(2));
+ amount.min='0.01';amount.step='0.01';
+ const date=field('Payment date','receiptEditDate','date',String(p.date||'').slice(0,10));
+ const reference=field('Payment reference / transaction ID','receiptEditRef','text',p.reference||'');
+ reference.maxLength=200;
+ const warning=document.createElement('p');warning.className='muted';warning.textContent='Saving will update outstanding dues, consolidated Club Service Fees income and VPM payment status automatically.';
+ card.append(warning);
+ const actions=document.createElement('div');actions.className='actions';
+ const save=document.createElement('button');save.type='submit';save.textContent='Save receipt changes';
+ const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.style.background='#667487';cancel.onclick=()=>overlay.remove();
+ actions.append(save,cancel);card.append(actions);overlay.append(card);document.body.append(overlay);
+ overlay.addEventListener('click',event=>{if(event.target===overlay)overlay.remove()});
+ card.onsubmit=event=>{
+  event.preventDefault();
+  const num=Number(amount.value),cents=Math.round(num*100),totalCents=Math.round(Number(invoice.total)*100);
+  const otherCents=store.payments.filter(x=>String(x.invoiceId)===String(invoice.id)&&String(x.id)!==String(p.id)).reduce((sum,x)=>sum+Math.round(Number(x.amount)*100),0);
+  if(!Number.isFinite(num)||cents<=0||Math.abs(num*100-cents)>0.0001)return alert('Enter a valid positive amount with up to two decimal places.');
+  if(otherCents+cents>totalCents)return alert('Receipt exceeds the invoice total. Maximum allowed for this receipt: ₹'+(Math.max(0,totalCents-otherCents)/100).toFixed(2));
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date.value)||Number.isNaN(Date.parse(date.value)))return alert('Enter a valid payment date.');
+  if(!confirm('Save corrections to receipt '+p.id+'? The original invoice and receipt number will stay the same.'))return;
+  p.amount=cents/100;
+  p.date=date.value+'T'+(String(p.date||'').match(/T(.+)$/)?.[1]||'00:00:00.000Z');
+  p.reference=reference.value.trim();
+  p.editedAt=new Date().toISOString();
+  overlay.remove();persist();render();
+ };
+}
+
 function deletePayment(id){if(!confirm('Permanently delete payment '+id+'?'))return;store.payments=store.payments.filter(p=>p.id!==id);persist();render()}
 function deleteMember(name,email){let ids=store.invoices.filter(i=>(email?i.email===email:i.name===name)).map(i=>i.id);if(!confirm('Delete this member and '+ids.length+' invoice(s), including linked payments? This cannot be undone.'))return;store.invoices=store.invoices.filter(i=>!ids.includes(i.id));store.payments=store.payments.filter(p=>!ids.includes(p.invoiceId));store.memberRegister=store.memberRegister.filter(r=>!(r.name===name));persist();render()}
 
@@ -657,7 +704,7 @@ async function registerPDF(kind){try{await ensurePDF();const pdf=new window.jspd
 function renderSecretary(){let billed=store.invoices.reduce((a,i)=>a+(+i.total||0),0),received=store.payments.reduce((a,p)=>a+(+p.amount||0),0),members=new Set(store.invoices.map(i=>i.email||i.name.toLowerCase())),[income,expense]=totals('ledger'),[assets,liabilities]=totals('balance');let c=store.club;document.getElementById('secretaryView').innerHTML=`<div class="panel"><h3>Club Details</h3><table><tbody><tr><th>Club name</th><td>${esc(c.name||'Not set')}</td></tr><tr><th>Club number</th><td>${esc(c.number||'—')}</td></tr><tr><th>District</th><td>${esc(c.district||'—')}</td></tr><tr><th>Division</th><td>${esc(c.division||'—')}</td></tr><tr><th>Area</th><td>${esc(clubArea(c)||'—')}</td></tr><tr><th>Club email</th><td>${esc(c.email||'—')}</td></tr><tr><th>Contact phone</th><td>${esc(c.phone||'—')}</td></tr></tbody></table></div><div class="grid"><div class="panel"><h3>Treasurer summary</h3><p>Invoices: ${store.invoices.length} · Payments: ${store.payments.length}</p><p>Billed: ${money(billed)} · Collected: ${money(received)} · Outstanding: ${money(billed-received)}</p><p>Income: ${money(income)} · Expenses: ${money(expense)} · Net earnings: ${money(income-expense)}</p><p>Assets: ${money(assets)} · Liabilities: ${money(liabilities)} · Net assets: ${money(assets-liabilities)}</p></div><div class="panel"><h3>VPM summary</h3><p>New members with receipts: ${members.size}</p><p>Member register entries: ${store.memberRegister.length}</p><p>Potential guests: ${store.guests.length}</p><p>Total guest meetings attended: ${store.guests.reduce((a,g)=>a+(+g.meetings||0),0)}</p></div></div><p class="muted">Summary reflects records in this browser only. Income statement and balance sheet are manual registers, not reconciled with payments.</p>`}
 const originalRender=render;render=function(){originalRender();$('vpmView').insertAdjacentHTML('beforeend',receiptMemberPanel()+registerTable('guests'));$('treasurerView').insertAdjacentHTML('beforeend',duesPanel()+clubFeesPanel()+registerTable('ledger')+registerTable('balance')+registerTable('reimbursements'));renderSecretary();
  document.querySelectorAll('#invoiceView table tbody tr,#invoiceView table tr').forEach(tr=>{let btn=tr.querySelector('button[onclick^="printDoc"]');if(!btn||tr.querySelector('.delete-invoice'))return;let id=btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];if(!id)return;let td=btn.closest('td');let b=document.createElement('button');b.className='delete-invoice';b.textContent='Delete invoice';b.onclick=()=>deleteInvoice(id);td.appendChild(b)});
- let paymentPanel=$('treasurerView').querySelector('.panel:nth-child(2)');if(paymentPanel){let table=paymentPanel.querySelector('table');if(table){let head=table.querySelector('tr');if(head&&!head.textContent.includes('Actions'))head.insertAdjacentHTML('beforeend','<th>Actions</th>');let rows=[...table.querySelectorAll('tr')].slice(1);store.payments.slice().reverse().forEach((p,i)=>{if(rows[i]&&!rows[i].querySelector('button')){let td=document.createElement('td');let b=document.createElement('button');b.textContent='Delete';b.onclick=()=>deletePayment(p.id);td.appendChild(b);rows[i].appendChild(td)}})}}
+ let paymentPanel=$('treasurerView').querySelector('.panel:nth-child(2)');if(paymentPanel){let table=paymentPanel.querySelector('table');if(table){let head=table.querySelector('tr');if(head&&!head.textContent.includes('Actions'))head.insertAdjacentHTML('beforeend','<th>Actions</th>');let rows=[...table.querySelectorAll('tr')].slice(1);store.payments.slice().reverse().forEach((p,i)=>{if(rows[i]&&!rows[i].querySelector('button')){let td=document.createElement('td');let edit=document.createElement('button');edit.textContent='Edit receipt';edit.onclick=()=>editReceipt(p.id);td.appendChild(edit);td.appendChild(document.createTextNode(' '));let b=document.createElement('button');b.textContent='Delete';b.onclick=()=>deletePayment(p.id);td.appendChild(b);rows[i].appendChild(td)}})}}
 
 };render();
 

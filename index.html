@@ -760,7 +760,7 @@ async function collectRow(kind,existing){if(kind==='reimbursements')return reimb
  let a=prompt('Amount in INR',r.amount??'');if(a===null)return null;if(!a.trim()||!Number.isFinite(+a)||+a<0)return alert('Enter a valid nonnegative amount.'),null;r.amount=Math.round(+a*100)/100;
  }else for(const [field,label] of def.columns){let v=prompt(label,r[field]??'');if(v===null)return null;if(field==='meetings'){if(!Number.isInteger(+v)||+v<0)return alert('Meetings attended must be a nonnegative whole number.'),null;r[field]=+v}else r[field]=v.trim()}
  return r}
-async function addRegister(kind){let r=await collectRow(kind);if(!r)return;store[kind].push(r);persist();render()}
+async function addRegister(kind){let r=await collectRow(kind);if(!r)return;if(['ledger','balance'].includes(kind))r.date=vpmCurrentDate();store[kind].push(r);persist();render()}
 async function editRegister(kind,id){let idx=store[kind].findIndex(r=>String(r.id)===String(id));if(idx<0)return;let r=await collectRow(kind,store[kind][idx]);if(!r)return;store[kind][idx]=r;persist();render()}
 function deleteRegister(kind,id){if(!confirm('Permanently delete this entry from '+registerDefs[kind].title+'?'))return;store[kind]=store[kind].filter(r=>String(r.id)!==String(id));persist();render()}
 function deleteInvoice(id){let linked=store.payments.filter(p=>p.invoiceId===id).length;if(!confirm('Delete invoice '+id+' and '+linked+' linked payment(s)? This cannot be undone.'))return;store.invoices=store.invoices.filter(i=>i.id!==id);store.payments=store.payments.filter(p=>p.invoiceId!==id);persist();render()}
@@ -1304,7 +1304,63 @@ function winnerSave(){let m=val('winMeeting')===''?null:store.meetings[+val('win
 function winnerPanel(){return `<div class="panel"><h3>Meeting winners register</h3><div class="grid">${field('Meeting',`<select id="winMeeting"><option value="">Select meeting</option>${store.meetings.map((m,i)=>`<option value="${i}">${esc(m.number+' '+m.date)}</option>`).join('')}</select>`)}${field('Winner',pick('winMember'))}${field('Award category',inp('winCategory'))}</div><button onclick="winnerSave()">Add winner</button>${arTable(['Meeting','Date','Award','Winner'],store.meetingWinners.map(w=>[w.meeting,w.date,w.category,nm(w.member)]))}<button onclick="clubosReportPDF('Meeting winners',['Meeting','Date','Award','Winner'],store.meetingWinners.map(w=>[w.meeting,w.date,w.category,nm(w.member)]),['secretary','president'],'winners.pdf')">Download winners PDF</button></div>`}
 function presidentSummary(){let [income,expense]=totals('ledger'),[assets,liabilities]=totals('balance');return [['Members',roster().length],['Meetings recorded',store.meetings.length],['Awards recorded',store.awards.length],['XCOM minutes',store.minutes.length],['Invoices',store.invoices.length],['Receipts',store.payments.length],['Income',money(income)],['Expenses',money(expense)],['Financial assets',money(assets)],['Liabilities',money(liabilities)],['Inventory items',store.inventory.length],['Open purchase requests',store.purchaseRequests.filter(x=>['Requested','Approved'].includes(x.status)).length]]}
 async function presidentPDF(){let rows=presidentSummary().map(x=>['Club overview',...x]);for(let r of Object.keys(arRoles))rows.push(...arRows(r).map(x=>[arRoles[r],...x]));await clubosReportPDF('Club report · '+arMonth,['Dashboard','Metric','Value'],rows,['president'],'Club-report-'+arMonth+'.pdf');}
-const arBaseRender=render;render=function(){arBaseRender();arInit();for(let r of ['vpe','vpm','vppr','secretary','treasurer'])$(r+'View').insertAdjacentHTML('afterbegin',arPanel(r));$('secretaryView').insertAdjacentHTML('beforeend',winnerPanel());$('saaView').innerHTML=arPanel('saa')+stockPanel();$('presidentView').innerHTML=arPanel('president')+`<div class="panel"><h3>Consolidated club report · ${arMonth}</h3><button onclick="presidentPDF()">Download consolidated club report PDF</button>${arTable(['Club overview (all time)','Value'],presidentSummary())}</div>`+Object.keys(arRoles).filter(r=>r!=='president').map(r=>`<div class="panel"><h3>${arRoles[r]}</h3>${arTable(['Metric','Value'],arRows(r))}<button onclick="arPDF('${r}')">Download officer report PDF</button></div>`).join('');};render();
+function handoverPanel(role){return '<div class="panel"><h3>Officer handover report</h3><p class="muted">Download a consolidated PDF for the incoming officer. Term dates can be selected when downloading.</p><button onclick="handoverPDF(\''+role+'\')">Download Handover Report (PDF)</button></div>';}
+async function handoverPDF(role){
+ if(!['treasurer','vpm','vpe'].includes(role)||![role,'president'].includes(cloudRole))return alert('Not authorized.');
+ const today=vpmCurrentDate(),defaultStart=today.slice(0,4)+(today.slice(5,7)<='06'?'-01-01':'-07-01');
+ const start=prompt('Term start (YYYY-MM-DD)',defaultStart);if(start===null)return;
+ const end=prompt('Term end (YYYY-MM-DD)',today);if(end===null)return;
+ const valid=d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
+ if(!valid(start)||!valid(end)||start>end||end>today)return alert('Enter valid term dates ending no later than today.');
+ const day=d=>String(d||'').slice(0,10),within=d=>day(d)>=start&&day(d)<=end,sections=[];
+ const add=(title,headers,rows)=>sections.push({title,headers,rows});
+ const reg=(kind,rows)=>{const d=registerDefs[kind];add(d.title,d.columns.map(x=>x[1]),rows.map(r=>d.columns.map(x=>r[x[0]]??'')));};
+ const reportSection=k=>{const [t,h,r]=dataFor(k);add(t,h,r);};
+ const cash=n=>'INR '+Number(n||0).toFixed(2);
+ if(role==='treasurer'){
+  const [income,expense]=totals('ledger'),[assets,liabilities]=totals('balance');
+  add('Club ledger - current cumulative summary',['Particular','Amount'],[['Income',cash(income)],['Expenses',cash(expense)],['Surplus / deficit',cash(income-expense)]]);
+  add('Club balance sheet - current position',['Particular','Amount'],[['Assets',cash(assets)],['Liabilities',cash(liabilities)],['Net assets',cash(assets-liabilities)]]);
+  reg('reimbursements',(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()!=='reimbursed'));
+  add('Outstanding membership dues - current',['Member','Invoice','Contact','Valid until','Billed','Paid','Amount due'],store.invoices.filter(i=>['new','existing','renewal'].includes(i.kind)&&i.total-paid(i.id)>0.005).map(i=>[i.name,i.id,i.contact||'',i.validUntil,cash(i.total),cash(paid(i.id)),cash(i.total-paid(i.id))]));
+  const manual=store.ledger||[],auto=autoClubServiceIncome(),undated=manual.filter(r=>!r.date),dated=manual.filter(r=>within(r.date)).concat(auto.filter(r=>within(r.date)));
+  const total=t=>dated.filter(r=>r.type===t).reduce((s,r)=>s+(+r.amount||0),0);
+  const opening=financialPeriods().slice(-1)[0],matching=opening?.start&&day(opening.start)===start&&end===today;
+  const termIncome=matching?income-opening.opening.income:total('income'),termExpense=matching?expense-opening.opening.expense:total('expense');
+  add('Term closing summary',['Metric','Value'],[['Invoices generated',store.invoices.filter(i=>within(i.created)).length],['Receipts generated',store.payments.filter(p=>within(p.date)).length],['Reimbursements completed',(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&within(r.reimbursedDate)).length],['Total income in term',cash(termIncome)],['Total expenses in term',cash(termExpense)],['Accounting basis',matching?'Change since financial opening snapshot':undated.length?'Dated entries only; '+undated.length+' legacy undated entries excluded from term totals':'Dated entries only']]);
+ }else if(role==='vpm'){
+  const active=currentValidVPMMembers(),keys=new Set(active.map(i=>String(i.memberId||i.name).trim().toLowerCase())),latest=new Map();
+  for(const i of receiptLinkedMembers()){const k=String(i.memberId||i.name).trim().toLowerCase();if(!latest.has(k)||String(i.validUntil)>String(latest.get(k).validUntil))latest.set(k,i);}
+  for(const i of active)latest.set(String(i.memberId||i.name).trim().toLowerCase(),i);
+  add('Membership status - current',['Member','Membership ID','Contact','Valid until','Status','Payment status'],[...latest].map(([k,i])=>[i.name,i.memberId||'',i.contact||'',i.validUntil,keys.has(k)?'Active':i.validUntil<today?'Expired':'Not active',i.receiptStatus]));
+  const added=acquisitionRows().filter(r=>within(r.date));
+  add('New members added in term: '+added.length,['Member','Membership ID','Receipt','Date'],added.map(r=>[r.name,r.memberId,r.receipt,day(r.date)]));
+  reg('guests',store.guests||[]);
+ }else{
+  const awards=(store.awards||[]).filter(a=>within(a.date));
+  add('Awards in term - '+awards.length,['Award','Count'],[...new Set(awards.map(a=>a.award))].map(k=>[k,awards.filter(a=>a.award===k).length]));
+  reportSection('education');reportSection('awards');reportSection('performance');
+  add('Performance reporting basis',['Period','Note'],[[performancePeriods().slice(-1)[0]?.label||'All time','Current dashboard register, not filtered to handover term']]);
+ }
+ try{
+  await ensurePDF();const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',compress:true});let y=0;
+  const title=({treasurer:'Treasurer',vpm:'VPM',vpe:'VPE'})[role]+' handover report';
+  function page(first=false){if(!first)pdf.addPage();pdf.setFillColor(0,65,101);pdf.rect(0,0,210,24,'F');try{pdf.addImage(store.club.logo||DEFAULT_LOGO,'PNG',12,3,22,18)}catch(e){}pdf.setTextColor(255);pdf.setFont('helvetica','bold');pdf.setFontSize(11);pdf.text(String(store.club.name||'Toastmasters Club'),39,9,{maxWidth:158});pdf.setFontSize(9);pdf.text(title,39,17);pdf.setTextColor(0);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text('Club '+(store.club.number||'-')+' | District '+(store.club.district||'-')+' | Area '+(clubArea(store.club)||'-'),12,30);pdf.text('Term: '+start+' to '+end+' | Generated: '+today,12,35);y=43;}
+  page(true);
+  for(const s of sections){
+   const w=186/s.headers.length;
+   function heading(continued=false){pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text(s.title+(continued?' (continued)':''),12,y,{maxWidth:186});y+=7;pdf.setFontSize(8);const h=s.headers.map(v=>pdf.splitTextToSize(String(v),w-3)),height=Math.max(8,...h.map(x=>x.length*3.5+3));pdf.setFillColor(232,239,243);pdf.rect(12,y,186,height,'F');h.forEach((v,j)=>pdf.text(v,13+j*w,y+3.5));y+=height;pdf.setFont('helvetica','normal');}
+   if(y>225)page();heading();
+   for(const row of s.rows.length?s.rows:[['No records']]){
+    pdf.setFontSize(8);const cells=s.headers.map((_,j)=>pdf.splitTextToSize(String(row[j]??''),w-3));let offset=0,max=Math.max(...cells.map(x=>x.length));
+    while(offset<max){if(y+8>260){page();heading(true);}const count=Math.min(max-offset,Math.max(1,Math.floor((260-y-3)/3.5))),height=count*3.5+3;cells.forEach((v,j)=>{const part=v.slice(offset,offset+count);if(part.length)pdf.text(part,13+j*w,y+3.5);});pdf.setDrawColor(215);pdf.line(12,y+height,198,y+height);y+=height;offset+=count;}
+   }y+=9;
+  }
+  if(y>240)page();pdf.setFontSize(9);pdf.text('Outgoing officer: '+String(store.club[role]||'Not provided'),12,y+5,{maxWidth:186});pdf.text('President: '+String(store.club.president||'Not provided'),12,y+12,{maxWidth:186});pdf.text('Incoming officer acknowledgement: __________________________',12,y+20);
+  const n=pdf.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);pdf.setFontSize(8);pdf.text('Page '+i+' of '+n,198,288,{align:'right'});}pdf.save('ClubOS-'+role+'-handover-'+start+'-'+end+'.pdf');
+ }catch(e){alert('Handover PDF could not be downloaded: '+e.message);}
+}
+const arBaseRender=render;render=function(){arBaseRender();arInit();for(const role of ['treasurer','vpm','vpe'])$(role+'View').insertAdjacentHTML('beforeend',handoverPanel(role));for(let r of ['vpe','vpm','vppr','secretary','treasurer'])$(r+'View').insertAdjacentHTML('afterbegin',arPanel(r));$('secretaryView').insertAdjacentHTML('beforeend',winnerPanel());$('saaView').innerHTML=arPanel('saa')+stockPanel();$('presidentView').innerHTML=arPanel('president')+`<div class="panel"><h3>Consolidated club report · ${arMonth}</h3><button onclick="presidentPDF()">Download consolidated club report PDF</button>${arTable(['Club overview (all time)','Value'],presidentSummary())}</div>`+Object.keys(arRoles).filter(r=>r!=='president').map(r=>`<div class="panel"><h3>${arRoles[r]}</h3>${arTable(['Metric','Value'],arRows(r))}<button onclick="arPDF('${r}')">Download officer report PDF</button></div>`).join('');};render();
 
 
 const cloud=window.supabase?.createClient('https://vbvpelkumghhsotuigtr.supabase.co','sb_publishable_7q_e4bxbof-LmKb3JEtPOg_3EXN1Pnv');

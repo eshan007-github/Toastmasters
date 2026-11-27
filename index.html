@@ -691,7 +691,7 @@ function receiptMemberEdit(invoiceId){
  const old=document.getElementById('receiptEditOverlay');if(old)old.remove();
  const box=document.createElement('div');box.id='receiptEditOverlay';box.style.cssText='position:fixed;inset:0;background:#12263eb8;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px';
  box.innerHTML='<form id="receiptEditForm" style="background:#fff;color:#243343;border-radius:14px;padding:22px;max-width:520px;width:100%;max-height:90vh;overflow:auto"><h2>Edit VPM member details</h2><p class="muted">The original invoice and receipt are not modified. Changes are saved in the club membership register.</p><div class="grid">'
- +['name','contact','since','memberId'].map((k,j)=>'<div><label for="vpmEdit'+j+'">'+['Member name','Contact number','Member since','Membership ID'][j]+'</label><input id="vpmEdit'+j+'" type="'+(k==='since'?'date':'text')+'" value="'+esc(i[k]||'')+'" '+(k==='name'?'required':k==='memberId'?'readonly title="Manage Membership ID in Membership Profiles"':'')+'></div>').join('')
+ +['name','contact','since','memberId'].map((k,j)=>'<div><label for="vpmEdit'+j+'">'+['Member name','Contact number','Member since','Membership ID'][j]+'</label><input id="vpmEdit'+j+'" type="'+(k==='since'?'date':'text')+'" value="'+esc(i[k]||'')+'" '+(k==='name'?'required':'')+'></div>').join('')
  +'</div><div class="actions"><button type="submit">Save changes</button><button type="button" id="vpmEditCancel" style="background:#6b7785">Cancel</button></div></form>';
  document.body.appendChild(box);
  box.querySelector('#vpmEditCancel').onclick=()=>box.remove();
@@ -701,7 +701,13 @@ function receiptMemberEdit(invoiceId){
   const fields=['name','contact','since','memberId'],values={};
   fields.forEach((k,j)=>values[k]=box.querySelector('#vpmEdit'+j).value.trim());
   if(!values.name)return alert('Member name is required.');
-  delete values.memberId; // Membership Profiles is the authoritative ID source.
+  store.profiles??=[];
+  const oldKey=String(i.name||'').trim().toLowerCase(),key=values.name.trim().toLowerCase(),id=values.memberId;
+  if(key!==oldKey&&store.profiles.some(p=>p.key===key))return alert('A profile already exists for this name. Edit the membership ID without changing the name.');
+  if(id&&receiptLinkedMembers().some(m=>String(m.name||'').trim().toLowerCase()!==oldKey&&String(m.memberId||'').trim().toLowerCase()===id.toLowerCase())||id&&store.profiles.some(p=>p.key!==oldKey&&String(p.memberId||'').trim().toLowerCase()===id.toLowerCase()))return alert('Membership ID already used by another member.');
+  if(id){let profile=store.profiles.find(p=>p.key===key);if(!profile){const previous=store.profiles.find(p=>p.key===oldKey);profile={...(previous||{}),key};store.profiles.push(profile);}profile.memberId=id;}
+  else if(i.memberId)return alert('Enter a membership ID to replace the existing one.');
+
   const existing=store.memberRegister.find(x=>x.invoiceId===invoiceId);
   if(existing)Object.assign(existing,values);
   else store.memberRegister.push({id:rowId(),invoiceId,...values});

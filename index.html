@@ -1498,7 +1498,7 @@ async function consolidatedOfficerPDF(role){
  const weights=s.headers.map(h=>/contact|phone/i.test(h)?1.55:/member(ship)? id/i.test(h)?1.15:/^member$|^name$|particular|discussion|notes|attendees/i.test(h)?1.65:/^type$|^date$|^meeting$|^level$|^points$/i.test(h)?0.8:1);
  const total=weights.reduce((a,b)=>a+b,0),widths=weights.map(w=>186*w/total),xs=widths.map((_,j)=>12+widths.slice(0,j).reduce((a,b)=>a+b,0));
  function wrap(value,j,header=false){
- let str=String(value??'').replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\u00a0/g,' ');
+ let str=String(value??'').replace(/₹/g,'INR ').replace(/\s*INR\s+/g,' INR ').trim().replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\u00a0/g,' ');
  if(!header&&/contact|phone/i.test(s.headers[j])){const digits=str.replace(/\D/g,'');if(/^91\d{10}$/.test(digits))str='+91 '+digits.slice(2,7)+' '+digits.slice(7);else if(/^\d{10}$/.test(digits))str=digits.slice(0,5)+' '+digits.slice(5);}
  const limit=widths[j]-4,lines=[];
  for(const paragraph of str.split(/\r?\n/)){let line='';for(const ch of paragraph){if(line&&pdf.getTextWidth(line+ch)>limit){lines.push(line.trimEnd());line=ch.trimStart();}else line+=ch;}lines.push(line);}

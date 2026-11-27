@@ -1461,11 +1461,10 @@ function linkedTreasurerMetrics(){
  const month=d=>String(d||'').slice(0,7)===arMonth;
  const invoices=store.invoices.filter(i=>month(i.created));
  const receipts=store.payments.filter(p=>month(p.date));
- const newIds=new Set(store.invoices.filter(i=>i.kind==='new').map(i=>String(i.id)));
- return [invoices.length,receipts.length,receipts.filter(p=>newIds.has(String(p.invoiceId))).reduce((a,p)=>a+(+p.amount||0),0).toFixed(2),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
+ return [invoices.length,receipts.length,invoices.filter(i=>i.kind==='new').reduce((a,i)=>a+Math.round((Number(i.registration)||0)*(Number(i.rate)||0)*100)/100,0).toFixed(2),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
 }
 const linkedArRows=arRows;
-arRows=function(role){if(role!=='treasurer')return linkedArRows(role);const a=arRecord(role);return [['Report status',a?'Submitted (live financial figures)':'Live financial figures'],...arFields.treasurer.map((f,i)=>[i===2?'New member invoice collections (INR)':f,linkedTreasurerMetrics()[i]]),['Summary',a?.summary||'—']];};
+arRows=function(role){if(role!=='treasurer')return linkedArRows(role);const a=arRecord(role);return [['Report status',a?'Submitted (live financial figures)':'Live financial figures'],...arFields.treasurer.map((f,i)=>[i===2?'New member fees (INR)':f,linkedTreasurerMetrics()[i]]),['Summary',a?.summary||'—']];};
 const linkedArPanel=arPanel;
 arPanel=function(role){return linkedArPanel(role).replace(role==='treasurer'?'Save monthly report':'__never__',role==='treasurer'?'Save monthly notes':'__never__');};
 function consolidatedSections(role){
@@ -1522,7 +1521,7 @@ presidentPDF=function(){return consolidatedOfficerPDF('president');};
 const consolidatedBaseRender=render;
 render=function(){consolidatedBaseRender();for(const r of Object.keys(arRoles).filter(r=>r!=='president')){const el=$(r+'View');if(el)el.insertAdjacentHTML('beforeend','<div class="panel"><h3>Consolidated officer report</h3><p class="muted">Selected month accountability and all current register records.</p><button onclick="consolidatedOfficerPDF(\''+r+'\')">Download Consolidated Report (PDF)</button></div>');}
  const p=$('presidentView');if(p)p.insertAdjacentHTML('beforeend','<div class="panel"><h3>Complete officer reports</h3>'+Object.keys(arRoles).filter(r=>r!=='president').map(r=>'<p><button onclick="consolidatedOfficerPDF(\''+r+'\')">Download '+arRoles[r]+' consolidated PDF</button></p>').join('')+'</div>');
- const metrics=linkedTreasurerMetrics();metrics.forEach((v,i)=>{const el=$('artreasurer'+i);if(el){el.value=v;el.readOnly=true;}});const fee=$('artreasurer2');if(fee){const label=fee.parentElement.querySelector('label');if(label)label.textContent='New member invoice collections (INR)';}
+ const metrics=linkedTreasurerMetrics();metrics.forEach((v,i)=>{const el=$('artreasurer'+i);if(el){el.value=v;el.readOnly=true;}});const fee=$('artreasurer2');if(fee){const label=fee.parentElement.querySelector('label');if(label)label.textContent='New member fees (INR)';}
 };render();
 
 </script></body></html>

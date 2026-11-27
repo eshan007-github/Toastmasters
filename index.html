@@ -855,7 +855,37 @@ async function registerPDF(kind){try{await ensurePDF();const pdf=new window.jspd
  }catch(e){alert('PDF could not be downloaded: '+e.message)}}
 const clubOfficerRoles=[['president','President'],['vpe','Vice President Education'],['vpm','Vice President Membership'],['vppr','Vice President Public Relations'],['secretary','Secretary'],['treasurer','Treasurer'],['saa','Sergeant at Arms']];
 function renderSecretary(){let billed=store.invoices.reduce((a,i)=>a+(+i.total||0),0),received=store.payments.reduce((a,p)=>a+(+p.amount||0),0),members=new Set(store.invoices.map(i=>i.email||i.name.toLowerCase())),[income,expense]=totals('ledger'),[assets,liabilities]=totals('balance');let c=store.club;document.getElementById('secretaryView').innerHTML=`<div class="panel"><h3>Club Details</h3><table><tbody><tr><th>Club name</th><td>${esc(c.name||'Not set')}</td></tr><tr><th>Club number</th><td>${esc(c.number||'—')}</td></tr><tr><th>District</th><td>${esc(c.district||'—')}</td></tr><tr><th>Division</th><td>${esc(c.division||'—')}</td></tr><tr><th>Area</th><td>${esc(clubArea(c)||'—')}</td></tr><tr><th>Club email</th><td>${esc(c.email||'—')}</td></tr><tr><th>Contact phone</th><td>${esc(c.phone||'—')}</td></tr><tr><th colspan="2" style="background:#e8eff3;color:#004165">Club Office Bearers</th></tr>${clubOfficerRoles.map(([key,title])=>`<tr><th>${esc(title)}</th><td>${esc(c[key]||'Not assigned')}</td></tr>`).join('')}</tbody></table></div><div class="grid"><div class="panel"><h3>Treasurer summary</h3><p>Invoices: ${store.invoices.length} · Payments: ${store.payments.length}</p><p>Billed: ${money(billed)} · Collected: ${money(received)} · Outstanding: ${money(billed-received)}</p><p>Income: ${money(income)} · Expenses: ${money(expense)} · Net earnings: ${money(income-expense)}</p><p>Assets: ${money(assets)} · Liabilities: ${money(liabilities)} · Net assets: ${money(assets-liabilities)}</p></div><div class="panel"><h3>VPM summary</h3><p>New members with receipts: ${members.size}</p><p>Member register entries: ${store.memberRegister.length}</p><p>Potential guests: ${store.guests.length}</p><p>Total guest meetings attended: ${store.guests.reduce((a,g)=>a+(+g.meetings||0),0)}</p></div></div><p class="muted">Summary reflects records in this browser only. Income statement and balance sheet are manual registers, not reconciled with payments.</p>`}
-const originalRender=render;render=function(){originalRender();$('vpmView').insertAdjacentHTML('beforeend',receiptMemberPanel()+vpmPendingPanel()+registerTable('guests'));$('treasurerView').insertAdjacentHTML('beforeend',duesPanel()+clubFeesPanel()+registerTable('ledger')+registerTable('balance')+registerTable('reimbursements'));renderSecretary();
+function acquisitionRows(){
+ const byPerson=new Map();
+ for(const i of receiptLinkedMembers()){
+  if(i.kind!=='new'||i.receiptStatus!=='Paid')continue;
+  const payments=store.payments.filter(p=>p.invoiceId===i.id&&Number(p.amount)>0&&Number.isFinite(Date.parse(p.date))).sort((a,b)=>Date.parse(a.date)-Date.parse(b.date));
+  let sum=0,receipt=null;
+  for(const p of payments){sum+=Number(p.amount);if(sum+0.005>=Number(i.total||0)){receipt=p;break;}}
+  if(!receipt)continue;
+  const key=String(i.memberId||i.name||'').trim().toLowerCase();if(!key)continue;
+  const row={name:i.name,memberId:i.memberId||'',invoice:i.id,receipt:receipt.id,date:new Date(receipt.date).toISOString()};
+  if(!byPerson.has(key)||row.date<byPerson.get(key).date)byPerson.set(key,row);
+ }
+ return [...byPerson.values()].sort((a,b)=>b.date.localeCompare(a.date));
+}
+function acquisitionPeriods(){return Array.isArray(store.acquisitionPeriods)?store.acquisitionPeriods:[];}
+function acquisitionStart(){
+ if(!['vpm','president'].includes(cloudRole))return alert('Only VPM or President can start a period.');
+ const label=prompt('Name for the new tracking period','Membership drive '+vpmCurrentDate());if(label===null||!label.trim())return;
+ if(!confirm('Start a new period now? Previous periods and receipts will be preserved.'))return;
+ const periods=acquisitionPeriods(),now=new Date().toISOString();
+ if(!periods.length)periods.push({label:'Before first tracking period',start:null,end:now});
+ else periods[periods.length-1].end=now;
+ periods.push({label:label.trim(),start:now,end:null});store.acquisitionPeriods=periods;commit();
+}
+function acquisitionPanel(){
+ const rows=acquisitionRows(),periods=acquisitionPeriods(),active=periods[periods.length-1]||{label:'All time',start:null,end:null};
+ const inPeriod=p=>rows.filter(r=>(!p.start||r.date>=p.start)&&(!p.end||r.date<p.end));
+ const table=p=>'<div class="scroll"><table><tr><th>Member</th><th>Membership ID</th><th>Receipt</th><th>Fully paid on (IST)</th></tr>'+inPeriod(p).map(r=>'<tr><td>'+esc(r.name)+'</td><td>'+esc(r.memberId)+'</td><td>'+esc(r.receipt)+'</td><td>'+esc(new Date(r.date).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'}))+'</td></tr>').join('')+(inPeriod(p).length?'':'<tr><td colspan="4">No new members in this period.</td></tr>')+'</table></div>';
+ return '<div class="panel"><h3>New Member Acquisition Tracker</h3><p class="muted">Counts unique new memberships once fully paid. Renewals and additional Pathways are excluded.</p><p><b>'+esc(active.label)+'</b> · '+(active.start?esc(new Date(active.start).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})):'All recorded history')+'</p><div class="metric">'+inPeriod(active).length+'</div><p>New members acquired this period</p>'+table(active)+'<div class="actions"><button onclick="acquisitionStart()">Start new period</button></div>'+periods.slice(0,-1).reverse().map(p=>'<details><summary>'+esc(p.label)+' · '+inPeriod(p).length+' new members</summary>'+table(p)+'</details>').join('')+'</div>';
+}
+const originalRender=render;render=function(){originalRender();$('vpmView').insertAdjacentHTML('beforeend',acquisitionPanel()+receiptMemberPanel()+vpmPendingPanel()+registerTable('guests'));$('treasurerView').insertAdjacentHTML('beforeend',duesPanel()+clubFeesPanel()+registerTable('ledger')+registerTable('balance')+registerTable('reimbursements'));renderSecretary();
  document.querySelectorAll('#invoiceView table tbody tr,#invoiceView table tr').forEach(tr=>{let btn=tr.querySelector('button[onclick^="printDoc"]');if(!btn||tr.querySelector('.delete-invoice'))return;let id=btn.getAttribute('onclick').match(/'([^']+)'/)?.[1];if(!id)return;let td=btn.closest('td');let b=document.createElement('button');b.className='delete-invoice';b.textContent='Delete invoice';b.onclick=()=>deleteInvoice(id);td.appendChild(b)});
  let paymentPanel=$('treasurerView').querySelector('.panel:nth-child(2)');if(paymentPanel){let table=paymentPanel.querySelector('table');if(table){let head=table.querySelector('tr');if(head&&!head.textContent.includes('Actions'))head.insertAdjacentHTML('beforeend','<th>Actions</th>');let rows=[...table.querySelectorAll('tr')].slice(1);store.payments.slice().reverse().forEach((p,i)=>{if(rows[i]&&!rows[i].querySelector('button')){let td=document.createElement('td');let edit=document.createElement('button');edit.textContent='Edit receipt';edit.onclick=()=>editReceipt(p.id);td.appendChild(edit);td.appendChild(document.createTextNode(' '));let b=document.createElement('button');b.textContent='Delete';b.onclick=()=>deletePayment(p.id);td.appendChild(b);rows[i].appendChild(td)}})}}
 

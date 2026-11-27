@@ -1333,7 +1333,10 @@ async function handoverPDF(role){
   reg('reimbursements',(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()!=='reimbursed'));
   add('Outstanding membership dues - current',['Member','Invoice','Contact','Valid until','Billed','Paid','Amount due'],store.invoices.filter(i=>['new','existing','renewal'].includes(i.kind)&&i.total-paid(i.id)>0.005).map(i=>[i.name,i.id,i.contact||'',i.validUntil,cash(i.total),cash(paid(i.id)),cash(i.total-paid(i.id))]));
   const manual=store.ledger||[],auto=autoClubServiceIncome(),undated=manual.filter(r=>!r.date),dated=manual.filter(r=>within(r.date)).concat(auto.filter(r=>within(r.date)));
-  const ledgerDetail=[...manual,...auto].sort((a,b)=>String(a.date||'9999').localeCompare(String(b.date||'9999')));add('Complete club ledger - all recorded transactions',['Sr No','Date','Particular','Income (INR)','Expense (INR)'],[...ledgerDetail.map((r,i)=>[r.serial||i+1,r.date||'Not recorded',r.particular||'',r.type==='income'?Number(r.amount||0).toFixed(2):'',r.type==='expense'?Number(r.amount||0).toFixed(2):'']),['','','Total',income.toFixed(2),expense.toFixed(2)],['','','Net surplus / deficit',(income-expense).toFixed(2),'']]);
+  const ledgerDef=registerDisplayDef('ledger'),ledgerDetail=registerDisplayRows('ledger');
+  add(ledgerDef.title,['Sr No',...ledgerDef.columns.map(x=>x[1])],[...ledgerDetail.map((r,i)=>[r.serial||i+1,...ledgerDef.columns.map(([k])=>r[k]??'')]),['','Total',income.toFixed(2),expense.toFixed(2)],['','Net surplus / deficit',(income-expense).toFixed(2),'']]);
+  Object.assign(sections[sections.length-1],{freshPage:true,weights:[0.10,0.50,0.20,0.20]});
+  add('Club ledger - carry-forward summary',['Financial summary'],financialSummaryLines('ledger').map(s=>[s]));
   const total=t=>dated.filter(r=>r.type===t).reduce((s,r)=>s+(+r.amount||0),0);
   const opening=financialPeriods().find(p=>p.start&&day(p.start)===start&&p.opening&&((p.end&&day(p.end)===end)||(!p.end&&end===today)));const matching=!!opening;const closing=opening?.closing||financialSnapshot();let includeLegacy=false;if(!matching&&undated.length)includeLegacy=confirm(undated.length+' older ledger entries have no transaction date. Include ALL of them in this term? Select Cancel to exclude them, or edit their dates in the ledger and regenerate.');const legacy=t=>includeLegacy?undated.filter(r=>r.type===t).reduce((s,r)=>s+(+r.amount||0),0):0;
   const termIncome=matching?closing.income-opening.opening.income:total('income')+legacy('income'),termExpense=matching?closing.expense-opening.opening.expense:total('expense')+legacy('expense');
@@ -1358,12 +1361,12 @@ async function handoverPDF(role){
   function page(first=false){if(!first)pdf.addPage();pdf.setFillColor(0,65,101);pdf.rect(0,0,210,24,'F');try{pdf.addImage(store.club.logo||DEFAULT_LOGO,'PNG',12,3,22,18)}catch(e){}pdf.setTextColor(255);pdf.setFont('helvetica','bold');pdf.setFontSize(11);pdf.text(String(store.club.name||'Toastmasters Club'),39,9,{maxWidth:158});pdf.setFontSize(9);pdf.text(title,39,17);pdf.setTextColor(0);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text('Club '+(store.club.number||'-')+' | District '+(store.club.district||'-')+' | Area '+(clubArea(store.club)||'-'),12,30);pdf.text('Term: '+start+' to '+end+' | Generated: '+today,12,35);y=43;}
   page(true);
   for(const s of sections){
-   const w=186/s.headers.length;
-   function heading(continued=false){pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text(s.title+(continued?' (continued)':''),12,y,{maxWidth:186});y+=7;pdf.setFontSize(8);const h=s.headers.map(v=>pdf.splitTextToSize(String(v),w-3)),height=Math.max(8,...h.map(x=>x.length*3.5+3));pdf.setFillColor(232,239,243);pdf.rect(12,y,186,height,'F');h.forEach((v,j)=>pdf.text(v,13+j*w,y+3.5));y+=height;pdf.setFont('helvetica','normal');}
-   if(y>225)page();heading();
+   const widths=s.weights?s.weights.map(v=>186*v):s.headers.map(()=>186/s.headers.length),xs=widths.map((_,j)=>12+widths.slice(0,j).reduce((a,b)=>a+b,0));
+   function heading(continued=false){pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text(s.title+(continued?' (continued)':''),12,y,{maxWidth:186});y+=7;pdf.setFontSize(8);const h=s.headers.map((v,j)=>pdf.splitTextToSize(String(v),widths[j]-3)),height=Math.max(8,...h.map(x=>x.length*3.5+3));pdf.setFillColor(232,239,243);pdf.rect(12,y,186,height,'F');h.forEach((v,j)=>pdf.text(v,xs[j]+1,y+3.5));y+=height;pdf.setFont('helvetica','normal');}
+   if(s.freshPage||y>225)page();heading();
    for(const row of s.rows.length?s.rows:[['No records']]){
-    pdf.setFontSize(8);const cells=s.headers.map((_,j)=>pdf.splitTextToSize(String(row[j]??''),w-3));let offset=0,max=Math.max(...cells.map(x=>x.length));
-    while(offset<max){if(y+8>260){page();heading(true);}const count=Math.min(max-offset,Math.max(1,Math.floor((260-y-3)/3.5))),height=count*3.5+3;cells.forEach((v,j)=>{const part=v.slice(offset,offset+count);if(part.length)pdf.text(part,13+j*w,y+3.5);});pdf.setDrawColor(215);pdf.line(12,y+height,198,y+height);y+=height;offset+=count;}
+    pdf.setFontSize(8);const cells=s.headers.map((_,j)=>pdf.splitTextToSize(String(row[j]??''),widths[j]-3));let offset=0,max=Math.max(...cells.map(x=>x.length));
+    while(offset<max){if(y+8>260){page();heading(true);}const count=Math.min(max-offset,Math.max(1,Math.floor((260-y-3)/3.5))),height=count*3.5+3;cells.forEach((v,j)=>{const part=v.slice(offset,offset+count);if(part.length)pdf.text(part,xs[j]+1,y+3.5);});pdf.setDrawColor(215);pdf.line(12,y+height,198,y+height);y+=height;offset+=count;}
    }y+=9;
   }
   if(y>225)page();

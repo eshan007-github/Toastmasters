@@ -1461,7 +1461,7 @@ function linkedTreasurerMetrics(){
  const month=d=>String(d||'').slice(0,7)===arMonth;
  const invoices=store.invoices.filter(i=>month(i.created));
  const receipts=store.payments.filter(p=>month(p.date));
- return [invoices.length,receipts.length,invoices.filter(i=>i.kind==='new').reduce((a,i)=>a+Math.round((Number(i.registration)||0)*(Number(i.rate)||0)*100)/100,0).toFixed(2),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
+ return [invoices.length,receipts.length,invoices.filter(i=>i.kind==='new').reduce((a,i)=>a+Math.round((Number(i.registration)||0)*1.18*(1+(Number(i.card)||0)/100)*(Number(i.rate)||0)*100)/100,0).toFixed(2),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
 }
 const linkedArRows=arRows;
 arRows=function(role){if(role!=='treasurer')return linkedArRows(role);const a=arRecord(role);return [['Report status',a?'Submitted (live financial figures)':'Live financial figures'],...arFields.treasurer.map((f,i)=>[i===2?'New member fees (INR)':f,linkedTreasurerMetrics()[i]]),['Summary',a?.summary||'—']];};

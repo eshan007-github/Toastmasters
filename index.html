@@ -1328,6 +1328,9 @@ async function handoverPDF(role){
  const cash=n=>'INR '+Number(n||0).toFixed(2);
  if(role==='treasurer'){
   const [income,expense]=totals('ledger'),[assets,liabilities]=totals('balance');
+  const receiptOpening=financialOpening()||{received:0,receipts:0},receiptCurrent=financialSnapshot(),activeFinancialPeriod=financialPeriods().slice(-1)[0];
+  add('Financial overview - current dashboard',['Metric','Amount'],[['Invoiced',cash(receiptCurrent.billed)],['Collected',cash(receiptCurrent.received)],['Outstanding',cash(receiptCurrent.billed-receiptCurrent.received)],['Club fees billed',cash(store.invoices.reduce((s,i)=>s+(+i.clubTotal||0),0))]]);
+  add('Receipts - financial period',['Particular','Value'],[['Financial period',activeFinancialPeriod?.label||'All time'],['Opening collections',cash(receiptOpening.received)],['Current cumulative collections',cash(receiptCurrent.received)],['Collections during period',cash(receiptCurrent.received-(+receiptOpening.received||0))],['Opening receipt count',receiptOpening.receipts||0],['Current cumulative receipt count',receiptCurrent.receipts],['Receipts during period',receiptCurrent.receipts-(+receiptOpening.receipts||0)],['Reporting basis','Current dashboard financial period; opening summary carried forward. All records retained.']]);
   add('Club ledger - current cumulative summary',['Particular','Amount'],[['Income',cash(income)],['Expenses',cash(expense)],['Surplus / deficit',cash(income-expense)]]);
   add('Club balance sheet - current position',['Particular','Amount'],[['Assets',cash(assets)],['Liabilities',cash(liabilities)],['Net assets',cash(assets-liabilities)]]);
   reg('reimbursements',(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()!=='reimbursed'));

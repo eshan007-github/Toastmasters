@@ -621,7 +621,10 @@ function memberContact(record){
 function receiptLinkedMembers(){
  return store.invoices.filter(i=>store.payments.some(p=>p.invoiceId===i.id)||(store.memberRegister||[]).some(r=>r.invoiceId===i.id&&r.activePending===true)).map(i=>{
   const override=(store.memberRegister||[]).find(r=>r.invoiceId===i.id)||{};
+  const profileKey=String(override.name??i.name??'').trim().toLowerCase();
+  const profile=(store.profiles||[]).find(p=>p.key===profileKey);
   return {...i,...Object.fromEntries(['name','email','since','memberId'].filter(k=>override[k]!==undefined&&override[k]!==null).map(k=>[k,override[k]])),
+   memberId:String(profile?.memberId||'').trim()||override.memberId||i.memberId||'',
    contact:String(override.contact??'').trim()||memberContact(i)||legacyPhoneNumber(override.email),
    received:paid(i.id),receiptCount:store.payments.filter(p=>p.invoiceId===i.id).length,
    receiptStatus:paid(i.id)+0.005>=Number(i.total||0)?'Paid':paid(i.id)>0?'Partially paid':'Unpaid',activePending:override.activePending===true};
@@ -688,7 +691,7 @@ function receiptMemberEdit(invoiceId){
  const old=document.getElementById('receiptEditOverlay');if(old)old.remove();
  const box=document.createElement('div');box.id='receiptEditOverlay';box.style.cssText='position:fixed;inset:0;background:#12263eb8;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px';
  box.innerHTML='<form id="receiptEditForm" style="background:#fff;color:#243343;border-radius:14px;padding:22px;max-width:520px;width:100%;max-height:90vh;overflow:auto"><h2>Edit VPM member details</h2><p class="muted">The original invoice and receipt are not modified. Changes are saved in the club membership register.</p><div class="grid">'
- +['name','contact','since','memberId'].map((k,j)=>'<div><label for="vpmEdit'+j+'">'+['Member name','Contact number','Member since','Membership ID'][j]+'</label><input id="vpmEdit'+j+'" type="'+(k==='since'?'date':'text')+'" value="'+esc(i[k]||'')+'" '+(k==='name'?'required':'')+'></div>').join('')
+ +['name','contact','since','memberId'].map((k,j)=>'<div><label for="vpmEdit'+j+'">'+['Member name','Contact number','Member since','Membership ID'][j]+'</label><input id="vpmEdit'+j+'" type="'+(k==='since'?'date':'text')+'" value="'+esc(i[k]||'')+'" '+(k==='name'?'required':k==='memberId'?'readonly title="Manage Membership ID in Membership Profiles"':'')+'></div>').join('')
  +'</div><div class="actions"><button type="submit">Save changes</button><button type="button" id="vpmEditCancel" style="background:#6b7785">Cancel</button></div></form>';
  document.body.appendChild(box);
  box.querySelector('#vpmEditCancel').onclick=()=>box.remove();
@@ -698,7 +701,7 @@ function receiptMemberEdit(invoiceId){
   const fields=['name','contact','since','memberId'],values={};
   fields.forEach((k,j)=>values[k]=box.querySelector('#vpmEdit'+j).value.trim());
   if(!values.name)return alert('Member name is required.');
-  if(values.memberId&&receiptLinkedMembers().some(x=>x.id!==invoiceId&&x.memberId===values.memberId))return alert('Membership ID already in use.');
+  delete values.memberId; // Membership Profiles is the authoritative ID source.
   const existing=store.memberRegister.find(x=>x.invoiceId===invoiceId);
   if(existing)Object.assign(existing,values);
   else store.memberRegister.push({id:rowId(),invoiceId,...values});
@@ -1126,7 +1129,7 @@ function ensureShape(d){
 store=ensureShape(store);render();
 const roles=['Toastmaster of the Day','Table Topics Master','General Evaluator','Timer','Ah-Counter','Grammarian','Listener'];
 function ext(){for(const k of ['profiles','education','meetings','awards','minutes'])store[k]??=[];}
-function roster(){ext();let a=receiptLinkedMembers(),m=new Map();for(let r of a){let k=(r.name||'').trim().toLowerCase();if(k&&!m.has(k))m.set(k,{key:k,name:r.name,...store.profiles.find(p=>p.key===k)});}return [...m.values()]}
+function roster(){ext();let a=receiptLinkedMembers(),m=new Map();for(let r of a){let k=(r.name||'').trim().toLowerCase();if(k&&!m.has(k))m.set(k,{key:k,name:r.name,...store.profiles.find(p=>p.key===k),memberId:r.memberId||''});}return [...m.values()]}
 function pick(id,v=''){return `<select id="${id}" ondragover="event.preventDefault()" ondrop="event.preventDefault();this.value=event.dataTransfer.getData('text/plain')"><option value="">Select member</option>${roster().map(m=>`<option value="${esc(m.key)}" ${m.key===v?'selected':''}>${esc(m.name)}</option>`).join('')}</select>`}
 function nm(k){return roster().find(m=>m.key===k)?.name||k||'—'}
 function pool(){return `<p class="muted">Drag a member onto a dropdown, or tap to select.</p><div class="actions">${roster().map(m=>`<span draggable="true" ondragstart="event.dataTransfer.setData('text/plain',this.dataset.key)" data-key="${esc(m.key)}" style="padding:7px;background:#e8eff3;border-radius:5px">${esc(m.name)}</span>`).join('')}</div>`}

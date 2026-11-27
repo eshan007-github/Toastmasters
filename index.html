@@ -1356,7 +1356,7 @@ function handoverIncoming(role){return new Promise(resolve=>{
  document.body.appendChild(overlay);const select=overlay.querySelector('#handoverMember'),manual=overlay.querySelector('#handoverManual');select.onchange=()=>{manual.style.display=select.value==='__manual__'?'block':'none';};const finish=v=>{overlay.remove();resolve(v);};overlay.querySelector('#handoverCancel').onclick=()=>finish(null);overlay.querySelector('#handoverOK').onclick=()=>{const name=(select.value==='__manual__'?manual.value:select.value).trim();if(!name)return alert('Select or enter incoming officer name.');finish({name,comments:overlay.querySelector('#handoverComments').value.trim()});};
  });}
 async function handoverPDF(role){
- if(!['treasurer','vpm','vpe'].includes(role)||![role,'president'].includes(cloudRole))return alert('Not authorized.');
+ if(!Object.keys(arRoles).includes(role)||![role,'president'].includes(cloudRole))return alert('Not authorized.');
  const today=vpmCurrentDate(),defaultStart=today.slice(0,4)+(today.slice(5,7)<='06'?'-01-01':'-07-01');
  const start=prompt('Term start (YYYY-MM-DD)',defaultStart);if(start===null)return;
  const end=prompt('Term end (YYYY-MM-DD)',today);if(end===null)return;
@@ -1394,15 +1394,34 @@ async function handoverPDF(role){
   const added=acquisitionRows().filter(r=>within(r.date));
   add('New members added in term: '+added.length,['Member','Membership ID','Receipt','Date'],added.map(r=>[r.name,r.memberId,r.receipt,day(r.date)]));
   reg('guests',store.guests||[]);
- }else{
+ }else if(role==='vpe'){
   const awards=(store.awards||[]).filter(a=>within(a.date));
   add('Awards in term - '+awards.length,['Award','Count'],[...new Set(awards.map(a=>a.award))].map(k=>[k,awards.filter(a=>a.award===k).length]));
   reportSection('education');reportSection('awards');reportSection('performance');
   add('Performance reporting basis',['Period','Note'],[[performancePeriods().slice(-1)[0]?.label||'All time','Current dashboard register, not filtered to handover term']]);
+ } else {
+ const officers=role==='president'?Object.keys(arRoles):[role];
+ const overlaps=m=>/^\d{4}-\d{2}$/.test(m)&&m>=start.slice(0,7)&&m<=end.slice(0,7);
+ for(const officer of officers){
+ const records=(store.accountability||[]).filter(a=>a.role===officer&&overlaps(a.month)).sort((a,b)=>a.month.localeCompare(b.month));
+ add(arRoles[officer]+' - monthly accountability (overlapping months)',['Month','Metric','Value'],records.flatMap(a=>[...arFields[officer].map((f,i)=>[a.month,f,officer==='treasurer'&&i===2?(a.manualNewMemberFees??'Not entered'):(a.values||[])[i]??'']),[a.month,'Summary',a.summary||''],...(officer==='saa'?[[a.month,'Checklist',a.check||'']]:[])]));
+ if(officer==='vppr')add('Social media handover details',['Month','Posters','Reels','Notes'],records.map(a=>[a.month,a.values?.[0],a.values?.[1],a.summary]));
+ if(officer==='secretary'||officer==='vpe'){
+ add('Meeting register - term',meetingColumns(),store.meetings.filter(m=>within(m.date)).map(meetingRow));
+ add('Attendance - term',['Meeting','Date','Attendees'],store.meetings.filter(m=>within(m.date)).map(m=>[m.number,m.date,(m.attendance||[]).map(nm).join(', ')]));
+ add('Awards - term',['Member','Award','Date'],store.awards.filter(a=>within(a.date)).map(a=>[nm(a.member),a.award,a.date]));
  }
+ if(officer==='secretary'){add('XCOM minutes - term',['Date','Discussion and decisions'],store.minutes.filter(a=>within(a.date)).map(a=>[a.date,a.notes]));add('Meeting winners - term',winnerColumns(),winnerRows().filter(r=>within(r[1])));}
+ if(officer==='vpe'){reportSection('education');add('External speeches - term',['Member','Club','Speech','Date'],store.externalSpeeches.filter(a=>within(a.date)).map(a=>[nm(a.member),a.club,a.title,a.date]));add('Levels - term',['Member','Pathway','Level','Date'],store.levelCompletions.filter(a=>within(a.date)).map(a=>[nm(a.member),a.path,a.level,a.date]));}
+ if(officer==='vpm'){add('New members - term',['Member','Membership ID','Receipt','Date'],acquisitionRows().filter(a=>within(a.date)).map(a=>[a.name,a.memberId,a.receipt,a.date]));add('Current membership snapshot',['Member','Membership ID','Valid until'],currentValidVPMMembers().map(a=>[a.name,a.memberId,a.validUntil]));reg('guests',store.guests||[]);}
+ if(officer==='treasurer'){add('Invoices - term',['Invoice','Member','Date','Amount INR'],store.invoices.filter(a=>within(a.created)).map(a=>[a.id,a.name,day(a.created),cash(a.total)]));add('Receipts - term',['Receipt','Invoice','Date','Amount INR'],store.payments.filter(a=>within(a.date)).map(a=>[a.id,a.invoiceId,day(a.date),cash(a.amount)]));reg('reimbursements',store.reimbursements.filter(a=>within(a.expenseDate)||within(a.reimbursedDate)));const entries=(store.ledger||[]).concat(autoClubServiceIncome()).filter(a=>within(a.date));add('Dated ledger entries - term',['Date','Particular','Type','Amount INR'],entries.map(a=>[a.date,a.particular,a.type,cash(a.amount)]));add('Current balance sheet snapshot',['Particular','Type','Amount INR'],balanceRows().map(a=>[a.particular,a.type,cash(a.amount)]));}
+ if(officer==='saa'){add('Current inventory snapshot',stockHeads.inventory,stockRows('inventory'));add('Stock movements - term',stockHeads.stockLog,stockRows('stockLog').filter(a=>within(a[0])));add('Purchase requests - term',stockHeads.purchaseRequests,stockRows('purchaseRequests').filter(a=>within(a[0])));}
+ }
+ }
+
  try{
   await ensurePDF();const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',compress:true});let y=0;
-  const title=({treasurer:'Treasurer',vpm:'VPM',vpe:'VPE'})[role]+' handover report';
+  const title=(arRoles[role])+' handover report';
   function page(first=false){if(!first)pdf.addPage();pdf.setFillColor(0,65,101);pdf.rect(0,0,210,24,'F');try{pdf.addImage(store.club.logo||DEFAULT_LOGO,'PNG',12,3,22,18)}catch(e){}pdf.setTextColor(255);pdf.setFont('helvetica','bold');pdf.setFontSize(11);pdf.text(String(store.club.name||'Toastmasters Club'),39,9,{maxWidth:158});pdf.setFontSize(9);pdf.text(title,39,17);pdf.setTextColor(0);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text('Club '+(store.club.number||'-')+' | District '+(store.club.district||'-')+' | Area '+(clubArea(store.club)||'-'),12,30);pdf.text('Term: '+start+' to '+end+' | Generated: '+today,12,35);y=43;}
   page(true);
   for(const s of sections){
@@ -1418,7 +1437,7 @@ async function handoverPDF(role){
   pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text('Outgoing officer comments',12,y);y+=7;pdf.setFont('helvetica','normal');pdf.setFontSize(9);const commentLines=pdf.splitTextToSize(comments||'No comments provided.',186);for(const line of commentLines){if(y>260){page();pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text('Outgoing officer comments (continued)',12,y);y+=7;pdf.setFont('helvetica','normal');pdf.setFontSize(9);}pdf.text(line,12,y);y+=4.5;}y+=10;
   if(y>225)page();
   pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text('Handover and acknowledgement',12,y+5);
-  const officerTitle=({treasurer:'Treasurer',vpm:'VP Membership',vpe:'VP Education'})[role];
+  const officerTitle=arRoles[role];
   const signatures=[{name:String(store.club[role]||'Not provided'),label:'Outgoing '+officerTitle,sign:!!store.club[role]},{name:String(store.club.president||'Not provided'),label:'Current President',sign:!!store.club.president},{name:incoming.trim(),label:'Incoming '+officerTitle,sign:false}];
   signatures.forEach((s,i)=>{const x=12+i*62;pdf.setFont('times','italic');pdf.setFontSize(12);if(s.sign)pdf.text(s.name,x+2,y+19,{maxWidth:56});pdf.setDrawColor(150);pdf.line(x+2,y+24,x+58,y+24);pdf.setFont('helvetica','normal');pdf.setFontSize(8);const names=pdf.splitTextToSize(s.name,56);pdf.text(names,x+2,y+29);pdf.setFontSize(7);pdf.text(s.label,x+2,y+29+names.length*3.5);});
   pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.text('Outgoing signatures are printed name representations; incoming officer signs to acknowledge receipt.',12,y+48,{maxWidth:186});
@@ -1461,10 +1480,12 @@ function linkedTreasurerMetrics(){
  const month=d=>String(d||'').slice(0,7)===arMonth;
  const invoices=store.invoices.filter(i=>month(i.created));
  const receipts=store.payments.filter(p=>month(p.date));
- return [invoices.length,receipts.length,invoices.filter(i=>i.kind==='new').reduce((a,i)=>a+Math.round((Number(i.registration)||0)*1.18*(1+(Number(i.card)||0)/100)*(Number(i.rate)||0)*100)/100,0).toFixed(2),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
+ return [invoices.length,receipts.length,(arRecord('treasurer')?.manualNewMemberFees??''),(store.reimbursements||[]).filter(r=>String(r.status).toLowerCase()==='reimbursed'&&month(r.reimbursedDate)).length];
 }
 const linkedArRows=arRows;
 arRows=function(role){if(role!=='treasurer')return linkedArRows(role);const a=arRecord(role);return [['Report status',a?'Submitted (live financial figures)':'Live financial figures'],...arFields.treasurer.map((f,i)=>[i===2?'New member fees (INR)':f,linkedTreasurerMetrics()[i]]),['Summary',a?.summary||'—']];};
+const originalArSave=arSave;
+arSave=function(role){if(role!=='treasurer')return originalArSave(role);const raw=val('artreasurer2');if(raw.trim()===''||!Number.isFinite(+raw)||+raw<0)return alert('Enter valid new member fees in INR.');const values=linkedTreasurerMetrics();values[2]=Math.round(+raw*100)/100;store.accountability=store.accountability.filter(x=>x.role!==role||x.month!==arMonth);store.accountability.push({role,month:arMonth,values,manualNewMemberFees:values[2],summary:val('arstre asurer'.replace(' ',''))});commit();};
 const linkedArPanel=arPanel;
 arPanel=function(role){return linkedArPanel(role).replace(role==='treasurer'?'Save monthly report':'__never__',role==='treasurer'?'Save monthly notes':'__never__');};
 function consolidatedSections(role){
@@ -1520,8 +1541,9 @@ async function consolidatedOfficerPDF(role){
 presidentPDF=function(){return consolidatedOfficerPDF('president');};
 const consolidatedBaseRender=render;
 render=function(){consolidatedBaseRender();for(const r of Object.keys(arRoles).filter(r=>r!=='president')){const el=$(r+'View');if(el)el.insertAdjacentHTML('beforeend','<div class="panel"><h3>Consolidated officer report</h3><p class="muted">Selected month accountability and all current register records.</p><button onclick="consolidatedOfficerPDF(\''+r+'\')">Download Consolidated Report (PDF)</button></div>');}
+ for(const r of ['president','vppr','secretary','saa']){const el=$(r+'View');if(el)el.insertAdjacentHTML('beforeend',handoverPanel(r));}
  const p=$('presidentView');if(p)p.insertAdjacentHTML('beforeend','<div class="panel"><h3>Complete officer reports</h3>'+Object.keys(arRoles).filter(r=>r!=='president').map(r=>'<p><button onclick="consolidatedOfficerPDF(\''+r+'\')">Download '+arRoles[r]+' consolidated PDF</button></p>').join('')+'</div>');
- const metrics=linkedTreasurerMetrics();metrics.forEach((v,i)=>{const el=$('artreasurer'+i);if(el){el.value=v;el.readOnly=true;}});const fee=$('artreasurer2');if(fee){const label=fee.parentElement.querySelector('label');if(label)label.textContent='New member fees (INR)';}
+ const metrics=linkedTreasurerMetrics();metrics.forEach((v,i)=>{const el=$('artreasurer'+i);if(el){el.value=v;el.readOnly=i!==2;}});const fee=$('artreasurer2');if(fee){const label=fee.parentElement.querySelector('label');if(label)label.textContent='New member fees (INR)';}
 };render();
 
 </script></body></html>

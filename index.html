@@ -1493,8 +1493,25 @@ async function consolidatedOfficerPDF(role){
  await ensurePDF();const pdf=new window.jspdf.jsPDF({unit:'mm',format:'a4',compress:true});
  const all=role==='president',officers=all?Object.keys(arRoles).filter(r=>r!=='president'):[role],title=all?'Complete club report':arRoles[role]+' consolidated report';let y=0;
  function page(first=false){if(!first)pdf.addPage();pdf.setFillColor(0,65,101);pdf.rect(0,0,210,25,'F');try{pdf.addImage(store.club.logo||DEFAULT_LOGO,'PNG',12,3,22,18)}catch(e){}pdf.setTextColor(255);pdf.setFont('helvetica','bold');pdf.setFontSize(11);pdf.text(String(store.club.name||'Toastmasters Club'),39,10,{maxWidth:158});pdf.setFontSize(9);pdf.text(title,39,19);pdf.setTextColor(0);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text('Club '+(store.club.number||'-')+' | District '+(store.club.district||'-')+' | Area '+(clubArea(store.club)||'-'),12,31);pdf.text('Accountability month: '+arMonth+' | Registers: all records | Generated: '+vpmCurrentDate(),12,36);y=44;}
- function section(s){const n=s.headers.length,w=186/n;function heading(){pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text(s.title,12,y,{maxWidth:186});y+=8;pdf.setFontSize(8);const cells=s.headers.map(h=>pdf.splitTextToSize(String(h),w-3)),h=Math.max(8,...cells.map(c=>c.length*3.5+3));pdf.setFillColor(232,239,243);pdf.rect(12,y,186,h,'F');cells.forEach((c,j)=>pdf.text(c,13+j*w,y+4));y+=h;pdf.setFont('helvetica','normal');}
- if(y>225)page();heading();for(const row of s.rows.length?s.rows:[['No records']]){const cells=s.headers.map((_,j)=>pdf.splitTextToSize(String(row[j]??''),w-3));let offset=0,max=Math.max(...cells.map(c=>c.length));while(offset<max){if(y+8>265){page();heading();}const count=Math.min(max-offset,Math.max(1,Math.floor((265-y-3)/3.5))),h=count*3.5+3;cells.forEach((c,j)=>{const part=c.slice(offset,offset+count);if(part.length)pdf.text(part,13+j*w,y+3.5);});pdf.setDrawColor(215);pdf.line(12,y+h,198,y+h);y+=h;offset+=count;}}y+=8;}
+ function section(s){
+ const n=s.headers.length;
+ const weights=s.headers.map(h=>/contact|phone/i.test(h)?1.55:/member(ship)? id/i.test(h)?1.15:/^member$|^name$|particular|discussion|notes|attendees/i.test(h)?1.65:/^type$|^date$|^meeting$|^level$|^points$/i.test(h)?0.8:1);
+ const total=weights.reduce((a,b)=>a+b,0),widths=weights.map(w=>186*w/total),xs=widths.map((_,j)=>12+widths.slice(0,j).reduce((a,b)=>a+b,0));
+ function wrap(value,j,header=false){
+ let str=String(value??'').replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\u00a0/g,' ');
+ if(!header&&/contact|phone/i.test(s.headers[j])){const digits=str.replace(/\D/g,'');if(/^91\d{10}$/.test(digits))str='+91 '+digits.slice(2,7)+' '+digits.slice(7);else if(/^\d{10}$/.test(digits))str=digits.slice(0,5)+' '+digits.slice(5);}
+ const limit=widths[j]-4,lines=[];
+ for(const paragraph of str.split(/\r?\n/)){let line='';for(const ch of paragraph){if(line&&pdf.getTextWidth(line+ch)>limit){lines.push(line.trimEnd());line=ch.trimStart();}else line+=ch;}lines.push(line);}
+ return lines.length?lines:[''];
+ }
+ function heading(){pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text(s.title,12,y,{maxWidth:186});y+=8;pdf.setFontSize(8);const cells=s.headers.map((h,j)=>wrap(h,j,true)),h=Math.max(8,...cells.map(c=>c.length*3.8+4));pdf.setFillColor(232,239,243);pdf.rect(12,y,186,h,'F');cells.forEach((c,j)=>pdf.text(c,xs[j]+2,y+4,{lineHeightFactor:1.34}));y+=h;pdf.setFont('helvetica','normal');}
+ if(y>225)page();heading();
+ for(const row of s.rows.length?s.rows:[['No records']]){
+ pdf.setFont('helvetica','normal');pdf.setFontSize(8);const cells=s.headers.map((_,j)=>wrap(row[j],j));let offset=0,max=Math.max(...cells.map(c=>c.length));
+ if(max*3.8+4<=210&&y+max*3.8+4>265){page();heading();}
+ while(offset<max){if(y+9>265){page();heading();}const count=Math.min(max-offset,Math.max(1,Math.floor((265-y-4)/3.8))),h=count*3.8+4;cells.forEach((c,j)=>{const part=c.slice(offset,offset+count);if(part.length)pdf.text(part,xs[j]+2,y+4,{lineHeightFactor:1.34});});pdf.setDrawColor(215);pdf.line(12,y+h,198,y+h);y+=h;offset+=count;}
+ }y+=8;
+ }
  function signatures(r){if(y>225)page();const keys=r==='president'?['president']:[r,'president'];keys.forEach((k,j)=>{const x=12+j*93;pdf.setFont('times','italic');pdf.setFontSize(12);pdf.text(String(store.club[k]||'Not provided'),x,y+9,{maxWidth:85});pdf.line(x,y+13,x+80,y+13);pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.text(String(store.club[k]||'Not provided'),x,y+18,{maxWidth:85});pdf.text(arRoles[k],x,y+24);});y+=32;}
  page(true);if(all){section({title:'Contents',['headers']:['Section'],rows:[['President overview'],...officers.map(r=>[arRoles[r]])]});section({title:'President overview',headers:['Metric','Value'],rows:presidentSummary()});section({title:'President monthly accountability',headers:['Metric','Value'],rows:arRows('president')});signatures('president');}
  for(const r of officers){if(all)page();pdf.setFont('helvetica','bold');pdf.setFontSize(14);pdf.text(arRoles[r],12,y);y+=10;for(const s of consolidatedSections(r))section(s);signatures(r);}

@@ -1313,6 +1313,7 @@ async function handoverPDF(role){
  const today=vpmCurrentDate(),defaultStart=today.slice(0,4)+(today.slice(5,7)<='06'?'-01-01':'-07-01');
  const start=prompt('Term start (YYYY-MM-DD)',defaultStart);if(start===null)return;
  const end=prompt('Term end (YYYY-MM-DD)',today);if(end===null)return;
+ const incoming=prompt('Full name of incoming '+({treasurer:'Treasurer',vpm:'Vice President Membership',vpe:'Vice President Education'})[role]);if(incoming===null)return;if(!incoming.trim())return alert('Incoming officer name is required.');
  const valid=d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
  if(!valid(start)||!valid(end)||start>end||end>today)return alert('Enter valid term dates ending no later than today.');
  const day=d=>String(d||'').slice(0,10),within=d=>day(d)>=start&&day(d)<=end,sections=[];
@@ -1359,7 +1360,12 @@ async function handoverPDF(role){
     while(offset<max){if(y+8>260){page();heading(true);}const count=Math.min(max-offset,Math.max(1,Math.floor((260-y-3)/3.5))),height=count*3.5+3;cells.forEach((v,j)=>{const part=v.slice(offset,offset+count);if(part.length)pdf.text(part,13+j*w,y+3.5);});pdf.setDrawColor(215);pdf.line(12,y+height,198,y+height);y+=height;offset+=count;}
    }y+=9;
   }
-  if(y>240)page();pdf.setFontSize(9);pdf.text('Outgoing officer: '+String(store.club[role]||'Not provided'),12,y+5,{maxWidth:186});pdf.text('President: '+String(store.club.president||'Not provided'),12,y+12,{maxWidth:186});pdf.text('Incoming officer acknowledgement: __________________________',12,y+20);
+  if(y>225)page();
+  pdf.setFont('helvetica','bold');pdf.setFontSize(10);pdf.text('Handover and acknowledgement',12,y+5);
+  const officerTitle=({treasurer:'Treasurer',vpm:'VP Membership',vpe:'VP Education'})[role];
+  const signatures=[{name:String(store.club[role]||'Not provided'),label:'Outgoing '+officerTitle,sign:!!store.club[role]},{name:String(store.club.president||'Not provided'),label:'Current President',sign:!!store.club.president},{name:incoming.trim(),label:'Incoming '+officerTitle,sign:false}];
+  signatures.forEach((s,i)=>{const x=12+i*62;pdf.setFont('times','italic');pdf.setFontSize(12);if(s.sign)pdf.text(s.name,x+2,y+19,{maxWidth:56});pdf.setDrawColor(150);pdf.line(x+2,y+24,x+58,y+24);pdf.setFont('helvetica','normal');pdf.setFontSize(8);const names=pdf.splitTextToSize(s.name,56);pdf.text(names,x+2,y+29);pdf.setFontSize(7);pdf.text(s.label,x+2,y+29+names.length*3.5);});
+  pdf.setFont('helvetica','normal');pdf.setFontSize(7);pdf.text('Outgoing signatures are printed name representations; incoming officer signs to acknowledge receipt.',12,y+48,{maxWidth:186});
   const n=pdf.getNumberOfPages();for(let i=1;i<=n;i++){pdf.setPage(i);pdf.setFontSize(8);pdf.text('Page '+i+' of '+n,198,288,{align:'right'});}pdf.save('ClubOS-'+role+'-handover-'+start+'-'+end+'.pdf');
  }catch(e){alert('Handover PDF could not be downloaded: '+e.message);}
 }

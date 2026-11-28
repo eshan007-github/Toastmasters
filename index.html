@@ -638,7 +638,7 @@ function receiptLinkedMembers(){
  });
 }
 
-let vpmShowHistory=true;
+let vpmShowHistory=false;
 function vpmCurrentDate(){return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit'});}
 function currentValidVPMMembers(){
  const today=vpmCurrentDate(),byMember=new Map();
@@ -680,7 +680,7 @@ function vpmPendingPanel(){
  +(invoices.length?'':'<tr><td colspan="5">No current unpaid invoices.</td></tr>')+'</tbody></table></div></div>';
 }
 
-function vpmVisibleMembers(){return vpmShowHistory?receiptLinkedMembers():receiptLinkedMembers().filter(i=>String(i.validUntil||'').slice(0,10)>=vpmCurrentDate()||!i.validUntil);}
+function vpmVisibleMembers(){const today=vpmCurrentDate();return receiptLinkedMembers().filter(i=>{const end=String(i.validUntil||'').slice(0,10),start=String(i.start||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(end)&&end>=today&&(!start||start<=today);});}
 function vpmToggleHistory(){vpmShowHistory=!vpmShowHistory;render();}
 
 function receiptMemberSummary(){
@@ -732,7 +732,7 @@ function transferAdd(){
 }
 function receiptMemberPanel(){
  const a=receiptMemberSummary();
- return '<div class="panel"><h3>VPM membership register</h3><p class="muted">All invoiced members appear automatically, including unpaid and partially paid invoices. Payment status remains accurate. Use the current validity filter to hide expired records; active membership eligibility remains separate.</p><p><b>'+a.rows.length+'</b> '+(vpmShowHistory?'all invoiced records':'currently valid members')+' · <b>'+a.unique+'</b> unique members · As of '+esc(vpmCurrentDate())+'</p><div class="actions"><button type="button" onclick="vpmToggleHistory()">'+(vpmShowHistory?'Show current validity records':'View all invoiced records')+'</button><button onclick="receiptMemberCSV()">Download CSV</button><button onclick="membersPDF()">Download PDF</button></div><div class="scroll"><table><thead><tr><th>Name</th><th>Contact number</th><th>Member since</th><th>Membership ID</th><th>Type</th><th>Valid until</th><th>Invoice</th><th>Payment status</th><th>Actions</th></tr></thead><tbody>'
+ return '<div class="panel"><h3>VPM membership register</h3><p class="muted">Only currently valid invoiced members are shown, including unpaid and partially paid invoices. Expired and future memberships are excluded; active membership eligibility remains separate.</p><p><b>'+a.rows.length+'</b> '+(vpmShowHistory?'all invoiced records':'currently valid members')+' · <b>'+a.unique+'</b> unique members · As of '+esc(vpmCurrentDate())+'</p><div class="actions"><button onclick="receiptMemberCSV()">Download CSV</button><button onclick="membersPDF()">Download PDF</button></div><div class="scroll"><table><thead><tr><th>Name</th><th>Contact number</th><th>Member since</th><th>Membership ID</th><th>Type</th><th>Valid until</th><th>Invoice</th><th>Payment status</th><th>Actions</th></tr></thead><tbody>'
  +a.rows.map(i=>'<tr><td>'+esc(i.name)+'</td><td>'+esc(i.contact||'')+'</td><td>'+esc(i.since||'')+'</td><td>'+esc(i.memberId||'')+'</td><td>'+(i.kind==='transferred'?'Transferred':i.kind==='dual'?'Dual':i.kind==='new'?'New':'Renewal')+'</td><td>'+esc(i.validUntil)+'</td><td>'+esc(i.id)+'</td><td>'+esc(i.activePending&&i.receiptStatus!=='Paid'?'Payment Pending · '+i.receiptStatus:i.receiptStatus)+'</td><td><button type="button" data-invoice="'+esc(i.id)+'" onclick="receiptMemberEdit(this.dataset.invoice)">Edit</button></td></tr>').join('')
  +'</tbody></table></div></div>';
 }
